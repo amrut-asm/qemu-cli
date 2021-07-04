@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# Set select prompt
+PS3='Enter your choice (q to quit): '
+
+# QEMU Launch Options
+DIR=/home/xnu/kvm/disk
+CPU=2
+MEM=3G
+
+if ! [[ -d $DIR ]]
+then
+	echo "Specified directory does not exist"
+	echo "Please set \$DIR in the script"
+	exit 1
+fi
+
+while read TAP
+do
+	TAP_STATUS=$(ip link show $TAP | sed -n 1p | awk -F ' ' '{print $11}')
+	if [[ $TAP_STATUS == "DOWN" ]]
+	then
+		echo "Starting VM on $TAP"
+		IFACE=$TAP
+		break
+	fi
+done < <(ip tuntap | awk -F ':' '{print $1}')
+
+if [[ -z $IFACE ]]
+then
+	echo "No interface available"
+	exit 1
+fi
+
+DISK_COUNT=0
+while read disk
+do
+	((DISK_COUNT++))
+	disk_array[DISK_COUNT]=$disk
+done < <(find $DIR -maxdepth 1 -name "*.qcow2" | sort)
+
+if [[ $DISK_COUNT -eq 0 ]]
+then
+	echo "No disk images available to boot from"
+	exit 1
+fi
+
+echo "Available disks"
+echo "---------------"
+select choice in "${disk_array[@]}"
+do
+	if [[ $REPLY == q ]]
+	then
+		echo "Quitting"
+		exit
+
+	elif ! [[ $REPLY  =~ ^[0-9]+$ ]]
+	then
+		echo "Invalid choice"
+		echo "Try again"
+
+	elif [[ $REPLY -le $DISK_COUNT && $REPLY -gt 0 ]]
+	then
+		VMAC=14:1f:ba:18:$[REPLY+10]:2f
+		echo "Assigned $VMAC to the VM"
+		kvm -m $MEM -smp $CPU -drive file=${disk_array[REPLY]},format=qcow2,if=virtio -vga qxl -nic tap,mac=$VMAC,ifname=$IFACE,script=no,downscript=no,model=virtio &
+		exit 0
+
+	else
+		echo "Invalid choice"
+		echo "Try again"
+	fi
+done
