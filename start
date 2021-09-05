@@ -4,9 +4,9 @@
 PS3='Enter your choice (q to quit): '
 
 # QEMU Launch Options
-DIR=/home/xnu/kvm/disk
+DIR=/home/nanibot/kvm/disk
 CPU=2
-MEM=3G
+MEM=4G
 
 if ! [[ -d $DIR ]]
 then
@@ -24,11 +24,11 @@ do
 		IFACE=$TAP
 		break
 	fi
-done < <(ip tuntap | awk -F ':' '{print $1}')
+done < <(ip tuntap | grep tap | awk -F ':' '{print $1}')
 
 if [[ -z $IFACE ]]
 then
-	echo "No interface available"
+	echo "No TAP interface available"
 	exit 1
 fi
 
@@ -61,11 +61,22 @@ do
 
 	elif [[ $REPLY -le $DISK_COUNT && $REPLY -gt 0 ]]
 	then
-		VMAC=14:1f:ba:18:$[REPLY+10]:2f
+		# Generate placeholders for the to-be-generated MAC address
+		vmac_ph1=$(shuf -i 10-99 -n 1)
+		vmac_ph2=$(shuf -i 10-99 -n 1)
+		VMAC=14:1f:ba:$vmac_ph1:$vmac_ph2:e8
+		# Generate placeholders for to-be-generated SMBIOS UUID
+		uuid_ph1=$(shuf -i 1000-9999 -n 1)
+		uuid_ph2=$(shuf -i 1000-9999 -n 1)
+		uuid="99999999-$uuid_ph1-$uuid_ph2-9999-999999999999"
 		echo "Assigned $VMAC to the VM"
-		kvm -m $MEM -smp $CPU -drive file=${disk_array[REPLY]},format=qcow2,if=virtio -vga qxl -nic tap,mac=$VMAC,ifname=$IFACE,script=no,downscript=no,model=virtio &
+		echo "UUID=$uuid"
+		# Call kvm
+		kvm -m $MEM -smp $CPU -drive file=${disk_array[REPLY]},format=qcow2,if=virtio -vga qxl \
+		-nic tap,mac=$VMAC,ifname=$IFACE,script=no,downscript=no,model=virtio \
+		-smbios type=1,manufacturer=qemu,product=vm,version=1,serial=qemu,uuid=$uuid,sku=qemu,family=qemu \
+		"$@" & &>/dev/null
 		exit 0
-
 	else
 		echo "Invalid choice"
 		echo "Try again"
